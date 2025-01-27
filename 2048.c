@@ -1,8 +1,8 @@
 #include <gb/gb.h>
 #include <gb/cgb.h>
-#include <gb/rand.h>
+#include <rand.h>
 #include "gfx.h"
-#include "snd.h"
+//#include "snd.h"
 
 #ifndef bool
 # define bool UINT8
@@ -43,25 +43,25 @@ void memcpy(UINT8* dst, const UINT8* src, int size) {
 }
 
 /* adds new tile to the map if possible */
-void add_new_tile() {
+void add_new_tile(void) {
     UINT8 r, rand_x, rand_y;
     for(y = 0; y < 4; y++)
         for(x = 0; x < 4; x++)
             /* there is space left for a new one */
             if(game[y][x] == 0) {
                 do {
-                    r = _rand() & 15; /* rand 0-15 */
+                    r = rand() & 15; /* rand 0-15 */
                     rand_y = (r>>2) & 3;
                     rand_x = r & 3;
                 } while(game[rand_y][rand_x] != 0);
-                r = _rand();
+                r = rand();
                 game[rand_y][rand_x] = (r < 26) ? 2 : 1; /* ~10% chance of getting 4 */
                 return;
             }
 }
 
 /* reinitialize the game */
-void new_game() {
+void new_game(void) {
     for(y=0; y<4; y++)
         for(x=0; x<4; x++)
             game[y][x] = 0;
@@ -195,7 +195,7 @@ bool move(UINT8 jp) {
     return false;
 }
 
-void fill_framebuffer() {
+void fill_framebuffer(void) {
     UINT8 *ptr;
     UINT8 digit_tile, border_tile;
     UINT16 score2;
@@ -324,7 +324,7 @@ void fill_message(const char* line1, const char* line2) {
 }
 
 /* returns true if 2048 is on the map */
-bool has_2048() {
+bool has_2048(void) {
     for(y=0; y<4; y++)
         for(x=0; x<4; x++)
             if(game[y][x] == 11)
@@ -333,7 +333,7 @@ bool has_2048() {
 }
 
 /* returns true if no further moves are possible (we lost) */
-bool no_move_possible() {
+bool no_move_possible(void) {
     for(y=0; y<4; y++)
         for(x=0; x<4; x++) {
             /* there is still a free tile */
@@ -345,7 +345,7 @@ bool no_move_possible() {
     return true;
 }
 
-void vblank_irq() {
+void vblank_irq(void) {
     if(flags & FLAG_REDRAW) {
         set_bkg_tiles(2, 1, 16, 17, frame_buff);
         if(_cpu == CGB_TYPE) {
@@ -358,7 +358,7 @@ void vblank_irq() {
 }
 
 /* main game routine, please change flags only here */
-void play() {
+void play(void) {
     if(flags & FLAG_WAIT_ACK) {
         if(joypad()&(J_START|J_A)) {
             if(flags & FLAG_RESTART) {
@@ -386,7 +386,7 @@ void play() {
 
 /* draws a border around map, border is not 
    in the framebuffer as it doesn't change during the game */
-void draw_fixed_border() {
+void draw_fixed_border(void) {
     UINT8 border[18];
     memset(border, BORDER_E, 16);
     set_bkg_tiles(1, 1, 1, 16, border);
@@ -416,7 +416,7 @@ void draw_fixed_border() {
     }
 }
 
-void main() {
+void main(void) {
     /* init & display welcome screen */
 	disable_interrupts();
 	DISPLAY_OFF;
@@ -446,6 +446,6 @@ void main() {
     
 	while(1) {
         play();
-        __asm__("halt");
     }
 }
+
