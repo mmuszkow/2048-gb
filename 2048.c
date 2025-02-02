@@ -2,6 +2,8 @@
 #include <gb/cgb.h>
 #include <rand.h>
 #include "gfx.h"
+
+// music is disabled but the routines are functional
 //#include "snd.h"
 
 #ifndef bool

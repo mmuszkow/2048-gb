@@ -1,8 +1,7 @@
 #ifndef __2048_SND_H__
 #define __2048_SND_H__
 
-/* Waveform samples register, no macro/consts defined in gdbk headers */
-#define SAMPLE_REG(i) (*(__REG)(0xFF30+(i)))
+#include <gb/gb.h>
 
 /* There are 21 8-bit sound registers + 16 8-bit waveform registers
  * This with EOF flag gives us 23 binary flags stored in 3 bytes, 1bit per flag (3x8bits)
@@ -43,7 +42,7 @@ const UINT8 SND[] = {
 };
 
 /* timer fires 16 times per second, this is the slowest timer interval possible */
-void snd_irq() {
+void snd_irq(void) {
     snd_i0 = *snd++;
     snd_i1 = *snd++;
     snd_i2 = *snd++;
@@ -66,22 +65,22 @@ void snd_irq() {
     if(snd_i1 & SND_I1_NR24)
         NR24_REG = *snd++;
     if(snd_i1 & SND_I1_SAMPLE) {
-        SAMPLE_REG(0) = *snd++;
-        SAMPLE_REG(1) = *snd++;
-        SAMPLE_REG(2) = *snd++;
-        SAMPLE_REG(3) = *snd++;
-        SAMPLE_REG(4) = *snd++;
-        SAMPLE_REG(5) = *snd++;
-        SAMPLE_REG(6) = *snd++;
-        SAMPLE_REG(7) = *snd++;
-        SAMPLE_REG(8) = *snd++;
-        SAMPLE_REG(9) = *snd++;
-        SAMPLE_REG(10) = *snd++;
-        SAMPLE_REG(11) = *snd++;
-        SAMPLE_REG(12) = *snd++;
-        SAMPLE_REG(13) = *snd++;
-        SAMPLE_REG(14) = *snd++;
-        SAMPLE_REG(15) = *snd++;
+        _AUD3WAVERAM[0] = *snd++;
+        _AUD3WAVERAM[1] = *snd++;
+        _AUD3WAVERAM[2] = *snd++;
+        _AUD3WAVERAM[3] = *snd++;
+        _AUD3WAVERAM[4] = *snd++;
+        _AUD3WAVERAM[5] = *snd++;
+        _AUD3WAVERAM[6] = *snd++;
+        _AUD3WAVERAM[7] = *snd++;
+        _AUD3WAVERAM[8] = *snd++;
+        _AUD3WAVERAM[9] = *snd++;
+        _AUD3WAVERAM[10] = *snd++;
+        _AUD3WAVERAM[11] = *snd++;
+        _AUD3WAVERAM[12] = *snd++;
+        _AUD3WAVERAM[13] = *snd++;
+        _AUD3WAVERAM[14] = *snd++;
+        _AUD3WAVERAM[15] = *snd++;
     }
     if(snd_i1 & SND_I1_NR30)
         NR30_REG = *snd++;

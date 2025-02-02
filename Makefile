@@ -23,7 +23,7 @@ compile.bat: Makefile
 # Compile and link single file in one pass
 %.gb:	%.c
 	$(LCC) $(LCCFLAGS) -o $@ $<
-	rgbfix -v -p 0xff -m 0 -j -i 2048 -k PL -l 0x33 -t "2048" -n 2 -c 2048.gb
+	rgbfix --color-compatible --fix-spec lhg --non-japanese --mbc-type 0 --rom-version 3 --pad-value 0xFF --ram-size 0 --game-id "MUH" --title "2048" --overwrite $(BINS)
 
 clean:
 	rm -f *.o *.lst *.map *.gb *~ *.rel *.cdb *.ihx *.lnk *.sym *.asm *.noi *.rst
