@@ -14,7 +14,7 @@
 #endif
 
 /* Global loop variables, [-128, 127] range */
-signed char x, y;
+INT8 x, y;
 
 /* numbers are stored as binary shift */
 UINT8 game[4][4];
@@ -22,6 +22,9 @@ UINT8 game[4][4];
 /* this buffers are used in vblank (16x17 tiles) */
 UINT8 frame_buff[272];
 UINT8 palette_buff[272]; /* GBC mode only */
+
+/* tracking  button presses between frames */
+UINT8 key_down, last_joy;
 
 #define FLAG_REDRAW     1 /* redrawing will be done only if this is true */
 #define FLAG_RESTART    2 /* game needs to be restarted */
@@ -75,7 +78,7 @@ void new_game(void) {
 
 bool apply_gravity(UINT8 jp) {    
     UINT8 gravity[4];
-    signed char grav_offset;
+    INT8 grav_offset;
     bool map_changed = false;
     if(jp & J_UP) {
         for(x = 0; x < 4; x++) {
@@ -362,8 +365,14 @@ void vblank_irq(void) {
 
 /* main game routine, please change flags only here */
 void play(void) {
+    UINT8 cur_joy, dpad;
+
+    cur_joy = joypad();
+    key_down = cur_joy & ~last_joy;
+    last_joy = cur_joy;
+
     if(flags & FLAG_WAIT_ACK) {
-        if(joypad()&(J_START|J_A)) {
+        if(key_down & (J_START|J_A)) {
             if(flags & FLAG_RESTART) {
                 new_game();
                 flags &= ~FLAG_RESTART;
@@ -372,19 +381,21 @@ void play(void) {
             flags &= ~FLAG_WAIT_ACK;
             flags |= FLAG_REDRAW;
         }
-    } else if(move(joypad())) {
-        add_new_tile();
-        fill_framebuffer();
-        if(no_move_possible()) {
-            fill_message(FAIL_MSG_1, FAIL_MSG_2);
-            flags = FLAG_WAIT_ACK|FLAG_RESTART;
-        } else if(!(flags & FLAG_2048_ACKED) && has_2048()) {
-            fill_message(SUCC_MSG_1, SUCC_MSG_2);
-            flags = FLAG_WAIT_ACK|FLAG_2048_ACKED;
+    } else {
+        dpad = key_down & (J_UP | J_DOWN | J_LEFT | J_RIGHT);
+        if (dpad && move(dpad)) {
+            add_new_tile();
+            fill_framebuffer();
+            if(no_move_possible()) {
+                fill_message(FAIL_MSG_1, FAIL_MSG_2);
+                flags = FLAG_WAIT_ACK|FLAG_RESTART;
+            } else if(!(flags & FLAG_2048_ACKED) && has_2048()) {
+                fill_message(SUCC_MSG_1, SUCC_MSG_2);
+                flags = FLAG_WAIT_ACK|FLAG_2048_ACKED;
+            }
+            flags |= FLAG_REDRAW;
         }
-        flags |= FLAG_REDRAW;
     }
-    while(joypad()); /* the implementation of waitpadup sucks */
 }
 
 /* draws a border around map, border is not 
@@ -529,6 +540,8 @@ void main(void) {
     //snd_irq_enable(VBL_IFLAG);
 	enable_interrupts();
     
+    key_down = 0;
+    last_joy = 0;
 	while(1) {
         play();
     }
