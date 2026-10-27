@@ -315,6 +315,10 @@ def reformat_c(fname):
     text = text.replace('sgb_border_palettes', 'SGB_PALETTES')
     text = text.replace('sgb_border_tiles', 'SGB_TILES')
     text = text.replace('sgb_border_map', 'SGB_MAP')
+
+    text = '#ifndef __2048_SGB_BORDER__\n#define __2048_SGB_BORDER__\n\n' + text
+    text = text + '\n#endif\n'
+
     with open(fname, 'w') as f:
         f.write(text)
     print('Reformatted', fname)
@@ -336,7 +340,8 @@ def main() -> None:
     print("Executed: ", png2asset_cmd)
 
     os.unlink('sgb_border.h')
-    reformat_c('sgb_border.c')
+    os.rename('sgb_border.c', 'sgb_border.h')
+    reformat_c('sgb_border.h')
 
 if __name__ == "__main__":
     main()

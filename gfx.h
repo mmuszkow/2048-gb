@@ -371,7 +371,7 @@ const char SUCC_MSG_2[13]   = "}\x7f~i~love~ya";
 const char FAIL_MSG_1[13]   = "~~you~lost~~";
 const char FAIL_MSG_2[13]   = "~~press~a~~~";
 
-#include "sgb_border.c"
+#include "sgb_border.h"
 
 #endif
 

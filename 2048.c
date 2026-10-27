@@ -5,7 +5,7 @@
 #include "gfx.h"
 
 // music is disabled but the routines are functional
-//#include "snd.h"
+#include "snd.h"
 
 #ifndef bool
 # define bool UINT8
@@ -445,7 +445,7 @@ void init_sgb_frame(void) {
     if (sgb_check()) {
         memset(map_buf, 0, sizeof(map_buf));
 
-        // Freeze screen transfer
+        /* freeze screen transfer */
         map_buf[0] = (SGB_MASK_EN << 3) | 1;
         map_buf[1] = 1; 
         sgb_transfer(map_buf);
@@ -460,7 +460,7 @@ void init_sgb_frame(void) {
         SHOW_BKG;
         DISPLAY_ON;
 
-        /* Prepare tilemap for SGB_BORDER_CHR_TRN (displays all 256 tiles) */
+        /* prepare tilemap for SGB_BORDER_CHR_TRN (displays all 256 tiles) */
         i = 0;
         for (y = 0; y != 14; ++y) {
             dout = map_buf;
@@ -470,7 +470,7 @@ void init_sgb_frame(void) {
         }
         memset(map_buf, 0, sizeof(map_buf));
 
-        /* Transfer tile data using SGB_TILES directly */
+        /* transfer tile data using SGB_TILES directly */
         tiledata = (UINT8*) SGB_TILES;
         ntiles = (sizeof(SGB_TILES) > 256 * 32) ? 0 : sizeof(SGB_TILES) >> 5;
         if ((!ntiles) || (ntiles > 128)) { 
@@ -492,7 +492,7 @@ void init_sgb_frame(void) {
             sgb_transfer(map_buf);
         }
 
-        // Transfer map and palettes directly using sizeof()
+        /* transfer map and palettes directly using sizeof() */
         set_bkg_data(0, (UINT8)(sizeof(SGB_MAP) >> 4), (UINT8*) SGB_MAP);
         set_bkg_data(128, (UINT8)(sizeof(SGB_PALETTES) >> 4), (UINT8*) SGB_PALETTES);
         map_buf[0] = (SGB_PCT_TRN << 3) | 1;
@@ -501,10 +501,10 @@ void init_sgb_frame(void) {
 
         LCDC_REG = tmp_lcdc;
 
-        // Clear screen
+        /* clear screen */
         fill_bkg_rect(0, 0, 20, 18, 0);
         
-        // Unfreeze screen to reveal border
+        /* unfreeze screen to reveal border */
         map_buf[0] = (SGB_MASK_EN << 3) | 1;
         map_buf[1] = 0; 
         sgb_transfer(map_buf);
