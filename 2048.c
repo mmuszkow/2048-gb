@@ -1,5 +1,6 @@
 #include <gb/gb.h>
 #include <gb/cgb.h>
+#include <gb/sgb.h>
 #include <rand.h>
 #include "gfx.h"
 
@@ -418,8 +419,90 @@ void draw_fixed_border(void) {
     }
 }
 
+void init_sgb_frame(void) {
+    UINT8 i, x, y;
+    UINT8 map_buf[20];
+    UINT8 tmp_lcdc;
+    volatile UINT8 ntiles;
+    UINT8 *dout, *tiledata;
+
+    /* according to docs, we have to wait 4 frames for PAL SNES compatibility */
+    for(i = 0; i < 4; i++)
+        wait_vbl_done();
+
+    /* if we are running on Super GameBoy */
+    if (sgb_check()) {
+        memset(map_buf, 0, sizeof(map_buf));
+
+        // Freeze screen transfer
+        map_buf[0] = (SGB_MASK_EN << 3) | 1;
+        map_buf[1] = 1; 
+        sgb_transfer(map_buf);
+
+        BGP_REG = OBP0_REG = OBP1_REG = 0xE4;
+        SCX_REG = SCY_REG = 0;
+
+        tmp_lcdc = LCDC_REG;
+
+        HIDE_SPRITES;
+        HIDE_WIN;
+        SHOW_BKG;
+        DISPLAY_ON;
+
+        /* Prepare tilemap for SGB_BORDER_CHR_TRN (displays all 256 tiles) */
+        i = 0;
+        for (y = 0; y != 14; ++y) {
+            dout = map_buf;
+            for (x = 0; x != 20; ++x)
+                *dout++ = i++;
+            set_bkg_tiles(0, y, 20, 1, map_buf);
+        }
+        memset(map_buf, 0, sizeof(map_buf));
+
+        /* Transfer tile data using SGB_TILES directly */
+        tiledata = (UINT8*) SGB_TILES;
+        ntiles = (sizeof(SGB_TILES) > 256 * 32) ? 0 : sizeof(SGB_TILES) >> 5;
+        if ((!ntiles) || (ntiles > 128)) { 
+            set_bkg_data(0, 0, tiledata); 
+            map_buf[0] = (SGB_CHR_TRN << 3) | 1;
+            map_buf[1] = 0; // SGB_CHR_BLOCK0
+            sgb_transfer(map_buf);
+
+            if (ntiles) ntiles -= 128; 
+            tiledata += (128 * 32);
+            set_bkg_data(0, ntiles << 1, tiledata); 
+            map_buf[0] = (SGB_CHR_TRN << 3) | 1;
+            map_buf[1] = 1; // SGB_CHR_BLOCK1
+            sgb_transfer(map_buf);
+        } else { 
+            set_bkg_data(0, ntiles << 1, tiledata); 
+            map_buf[0] = (SGB_CHR_TRN << 3) | 1;
+            map_buf[1] = 0; // SGB_CHR_BLOCK0
+            sgb_transfer(map_buf);
+        }
+
+        // Transfer map and palettes directly using sizeof()
+        set_bkg_data(0, (UINT8)(sizeof(SGB_MAP) >> 4), (UINT8*) SGB_MAP);
+        set_bkg_data(128, (UINT8)(sizeof(SGB_PALETTES) >> 4), (UINT8*) SGB_PALETTES);
+        map_buf[0] = (SGB_PCT_TRN << 3) | 1;
+        map_buf[1] = 0;
+        sgb_transfer(map_buf);
+
+        LCDC_REG = tmp_lcdc;
+
+        // Clear screen
+        fill_bkg_rect(0, 0, 20, 18, 0);
+        
+        // Unfreeze screen to reveal border
+        map_buf[0] = (SGB_MASK_EN << 3) | 1;
+        map_buf[1] = 0; 
+        sgb_transfer(map_buf);
+    }
+}
+
 void main(void) {
     /* init & display welcome screen */
+    init_sgb_frame();
 	disable_interrupts();
 	DISPLAY_OFF;
     set_bkg_data(0, 128, TILES);
