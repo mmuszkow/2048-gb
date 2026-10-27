@@ -3,9 +3,7 @@
 #include <gb/sgb.h>
 #include <rand.h>
 #include "gfx.h"
-
-// music is disabled but the routines are functional
-#include "snd.h"
+#include "music.h"
 
 #ifndef bool
 # define bool UINT8
@@ -13,7 +11,7 @@
 # define false 0
 #endif
 
-/* Global loop variables, [-128, 127] range */
+/* global loop variables, [-128, 127] range */
 INT8 x, y;
 
 /* numbers are stored as binary shift */
@@ -32,10 +30,12 @@ UINT8 key_down, last_joy;
 #define FLAG_2048_ACKED 8 /* winning msg was closed */
 UINT8 flags;
 
-/* Sound data pointer */
-UINT8* snd;
-/* Sound flags (3 bytes) */
-UINT8 snd_i0, snd_i1, snd_i2;
+/* sound processing variables */
+# define NO_SONG -1
+INT8 snd_song;
+UINT8 snd_cmd;
+INT8 snd_delay;
+const UINT8* snd_ptr;
 
 /* for score keeping */
 UINT16 score;
@@ -361,6 +361,60 @@ void vblank_irq(void) {
         }
         flags &= ~FLAG_REDRAW;
     }
+
+    /* check if muted */
+    if (snd_song < 0)
+        return;
+
+    /* check if we are still waiting for delay to finish */
+    if (snd_delay > 0) {
+        snd_delay--;
+        return;
+    }
+
+    while (1) {
+        snd_cmd = *snd_ptr++;
+
+        /* delay */
+        if (snd_cmd < 0x80) {
+            snd_delay = snd_cmd - 1;
+            return;
+        }
+
+        switch (snd_cmd) {
+            /* write 16-bytes sample */
+            case 0xFE:
+                _AUD3WAVERAM[0]  = *snd_ptr++;
+                _AUD3WAVERAM[1]  = *snd_ptr++;
+                _AUD3WAVERAM[2]  = *snd_ptr++;
+                _AUD3WAVERAM[3]  = *snd_ptr++;
+                _AUD3WAVERAM[4]  = *snd_ptr++;
+                _AUD3WAVERAM[5]  = *snd_ptr++;
+                _AUD3WAVERAM[6]  = *snd_ptr++;
+                _AUD3WAVERAM[7]  = *snd_ptr++;
+                _AUD3WAVERAM[8]  = *snd_ptr++;
+                _AUD3WAVERAM[9]  = *snd_ptr++;
+                _AUD3WAVERAM[10] = *snd_ptr++;
+                _AUD3WAVERAM[11] = *snd_ptr++;
+                _AUD3WAVERAM[12] = *snd_ptr++;
+                _AUD3WAVERAM[13] = *snd_ptr++;
+                _AUD3WAVERAM[14] = *snd_ptr++;
+                _AUD3WAVERAM[15] = *snd_ptr++;
+                break;
+            /* move to next song */
+            case 0xFF:
+                //NR52_REG = 0x00;
+                snd_song++;
+                if (snd_song >= SND_SONG_COUNT)
+                    snd_song = 0;
+                snd_ptr = &SND_SONGS[snd_song][0];
+                return;
+            default:
+                snd_cmd &= 0x7F; /* reg offset */
+                *(volatile UINT8*)(0xFF10 + snd_cmd) = *snd_ptr++;
+                break;
+        }
+    }
 }
 
 /* main game routine, please change flags only here */
@@ -536,9 +590,12 @@ void main(void) {
     new_game();
     flags = FLAG_REDRAW;
     fill_framebuffer();
+    NR52_REG = 0x80; // Bit 7 set: Turns on Master Sound hardware
+    NR50_REG = 0x77; // Volume: Set both Left and Right Master Volume to MAX (7)
+    NR51_REG = 0xFF;
+	snd_song = NO_SONG;
     add_VBL(vblank_irq);
-    //snd_irq_enable(VBL_IFLAG);
-	enable_interrupts();
+    enable_interrupts();
     
     key_down = 0;
     last_joy = 0;
