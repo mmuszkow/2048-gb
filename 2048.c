@@ -25,7 +25,7 @@ UINT8 key_down, last_joy;
 #define FLAG_RESTART    2 /* game needs to be restarted */
 #define FLAG_WAIT_ACK   4 /* we wait for A or START button */
 #define FLAG_2048_ACKED 8 /* winning msg was closed */
-UINT8 flags;
+volatile UINT8 flags;
 
 /* for score keeping */
 UINT16 score;
@@ -362,7 +362,7 @@ void vblank_irq(void) {
         flags &= ~FLAG_REDRAW;
     }
 
-    snd_process();
+    snd_update();
 }
 
 /* main game routine, please change flags only here */
@@ -537,7 +537,7 @@ void main(void) {
     new_game();
     flags = FLAG_REDRAW;
     fill_framebuffer();
-    snd_init(NO_SONG);
+    snd_set_song(NO_SONG);
     add_VBL(vblank_irq);
     enable_interrupts();
 
@@ -545,6 +545,7 @@ void main(void) {
     last_joy = 0;
 	while(1) {
         play();
+        snd_decompress();
     }
 }
 

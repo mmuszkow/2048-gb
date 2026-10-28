@@ -196,10 +196,11 @@ def export_rom_data(main_commands, nodes, song_id):
             all_bytes.extend(command_to_bytes(cmd))
         all_bytes.append(0xFE)  # RET command
 
-    c_code = ["#include <gb/gb.h>\n"]
+    prefix = f'SONG{song_id}'
+    c_code = [f'#ifndef __{prefix}_H__', f'#define __{prefix}_H__', "#include <gb/gb.h>\n"]
 
     # ARRAY 1: Contiguous Binary Blob
-    c_code.append("const UINT8 SONG%d_DATA[%d] = {" % (song_id, len(all_bytes)))
+    c_code.append("const UINT8 %s_DATA[%d] = {" % (prefix, len(all_bytes)))
     for i in range(0, len(all_bytes), 12):
         chunk = all_bytes[i : i+12]
         hex_chunk = ", ".join(f"0x{b:02X}" for b in chunk)
@@ -207,17 +208,18 @@ def export_rom_data(main_commands, nodes, song_id):
     c_code.append("};\n")
     
     # ARRAY 2: Pointer Lookup Table
-    c_code.append("const UINT8* const SONG%d_NODES[%d] = {" % (song_id, len(node_offsets)))
+    c_code.append("const UINT8* const %s_NODES[%d] = {" % (prefix, len(node_offsets)))
     if node_offsets:
         for i, offset in enumerate(node_offsets):
-            c_code.append(f"    &SongData[{offset}], // Node {i}")
+            c_code.append(f"    &{prefix}_DATA[{offset}],")
     else:
         c_code.append("    (const UINT8*)0")
     c_code.append("};\n")
     
     blob_bytes = len(all_bytes)
     pointer_table_bytes = len(node_offsets) * 2
-    
+
+    c_code.append('#endif\n') 
     return "\n".join(c_code), blob_bytes, pointer_table_bytes
 
 if __name__ == '__main__':

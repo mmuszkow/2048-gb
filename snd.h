@@ -4,77 +4,170 @@
 #include <gb/gb.h>
 #include "music.h"
 
-# define NO_SONG -1
-INT8 snd_song;
-UINT8 snd_cmd;
-INT8 snd_delay;
-const UINT8* snd_ptr;
+#define NO_SONG -1
+#define MAX_CALL_STACK 16
+#define MAX_FRAME_BUF  64
 
-void snd_init(INT8 song) {
-    if (song < 0) 
-        NR52_REG = 0x00; /* turn off sound, saves power */
-    else {
+/* Engine State Variables */
+volatile INT8 snd_song;
+INT8 snd_delay;
+static INT8 snd_next_delay;
+static const UINT8* snd_ptr;
+
+/* Tree Call Stack */
+static const UINT8* snd_stack[MAX_CALL_STACK];
+static UINT8 snd_stack_idx;
+
+/* Intermediate Register Write Queue (Main Loop -> VBlank ISR) */
+static UINT8 snd_buf[MAX_FRAME_BUF];
+static UINT8 snd_buf_len;
+static volatile UINT8 snd_buf_ready;
+
+void snd_set_song(INT8 song) {
+    if (song < 0) {
+        NR52_REG = 0x00; /* Power off APU */
+    } else {
         NR52_REG = 0x80;
         NR50_REG = 0x77;
         NR51_REG = 0xFF;
+
+        snd_ptr = SND_SONG_DATA[song];
+        snd_stack_idx = 0;
+        snd_delay = 0;
+        snd_next_delay = 0;
+        snd_buf_len = 0;
+        snd_buf_ready = 0;
     }
-    snd_delay = 0;
     snd_song = song;
 }
 
-void snd_process(void) {
-    /* check if muted */
+/* 
+ * MAIN LOOP: Interprets compressed nodes into a flat register write queue.
+ * Keeps running ahead until it hits a DELAY command.
+ */
+void snd_decompress(void) {
+    UINT8 cmd;
+    const UINT8** current_nodes;
+
+    if (snd_song < 0 || snd_buf_ready)
+        return;
+
+    current_nodes = (const UINT8**)SND_SONG_NODES[snd_song];
+    snd_buf_len = 0;
+
+    while (1) {
+        cmd = *snd_ptr++;
+
+        /* DELAY: 0x00 - 0x7F */
+        if (cmd < 0x80) {
+            snd_next_delay = (INT8)cmd - 1;
+            snd_buf_ready = 1; /* Atomic flag release for VBlank */
+            return;
+        }
+
+        switch (cmd) {
+            /* WAVE_RAM (0xFA): Queue opcode + 16 payload bytes */
+            case 0xFA:
+                if (snd_buf_len + 17 <= MAX_FRAME_BUF) {
+                    snd_buf[snd_buf_len++] = 0xFA;
+                    for (UINT8 i = 0; i < 16; i++) {
+                        snd_buf[snd_buf_len++] = *snd_ptr++;
+                    }
+                } else {
+                    snd_ptr += 16;
+                }
+                break;
+
+            /* NODE_CALL_16 (0xFC): 2-byte node index */
+            case 0xFC: {
+                UINT16 node_id = (UINT16)snd_ptr[0] | ((UINT16)snd_ptr[1] << 8);
+                snd_ptr += 2;
+                if (snd_stack_idx < MAX_CALL_STACK) {
+                    snd_stack[snd_stack_idx++] = snd_ptr;
+                    snd_ptr = current_nodes[node_id];
+                }
+                break;
+            }
+
+            /* NODE_CALL_8 (0xFD): 1-byte node index */
+            case 0xFD: {
+                UINT8 node_id = *snd_ptr++;
+                if (snd_stack_idx < MAX_CALL_STACK) {
+                    snd_stack[snd_stack_idx++] = snd_ptr;
+                    snd_ptr = current_nodes[node_id];
+                }
+                break;
+            }
+
+            /* RET (0xFE): Return from node */
+            case 0xFE:
+                if (snd_stack_idx > 0) {
+                    snd_ptr = snd_stack[--snd_stack_idx];
+                }
+                break;
+
+            /* END (0xFF): Advance to next song */
+            case 0xFF:
+                snd_song++;
+                if (snd_song >= SND_SONG_COUNT)
+                    snd_song = 0;
+                snd_ptr = SND_SONG_DATA[snd_song];
+                current_nodes = (const UINT8**)SND_SONG_NODES[snd_song];
+                snd_stack_idx = 0;
+                break;
+
+            /* REG_WRITE: Copy (reg_offset, val) pair into buffer */
+            default:
+                if (snd_buf_len + 2 <= MAX_FRAME_BUF) {
+                    snd_buf[snd_buf_len++] = cmd & 0x7F;
+                    snd_buf[snd_buf_len++] = *snd_ptr++;
+                } else {
+                    snd_ptr++;
+                }
+                break;
+        }
+    }
+}
+
+/* 
+ * VBLANK ISR: Ultra-fast hardware register flush.
+ */
+void snd_update(void) {
     if (snd_song < 0)
         return;
 
-    /* check if we are still waiting for delay to finish */
     if (snd_delay > 0) {
         snd_delay--;
         return;
     }
 
-    while (1) {
-        snd_cmd = *snd_ptr++;
-
-        /* delay */
-        if (snd_cmd < 0x80) {
-            snd_delay = snd_cmd - 1;
-            return;
+    if (snd_buf_ready) {
+        UINT8 i = 0;
+        while (i < snd_buf_len) {
+            UINT8 op = snd_buf[i++];
+            if (op == 0xFA) {
+                _AUD3WAVERAM[0]  = snd_buf[i++];
+                _AUD3WAVERAM[1]  = snd_buf[i++];
+                _AUD3WAVERAM[2]  = snd_buf[i++];
+                _AUD3WAVERAM[3]  = snd_buf[i++];
+                _AUD3WAVERAM[4]  = snd_buf[i++];
+                _AUD3WAVERAM[5]  = snd_buf[i++];
+                _AUD3WAVERAM[6]  = snd_buf[i++];
+                _AUD3WAVERAM[7]  = snd_buf[i++];
+                _AUD3WAVERAM[8]  = snd_buf[i++];
+                _AUD3WAVERAM[9]  = snd_buf[i++];
+                _AUD3WAVERAM[10] = snd_buf[i++];
+                _AUD3WAVERAM[11] = snd_buf[i++];
+                _AUD3WAVERAM[12] = snd_buf[i++];
+                _AUD3WAVERAM[13] = snd_buf[i++];
+                _AUD3WAVERAM[14] = snd_buf[i++];
+                _AUD3WAVERAM[15] = snd_buf[i++];
+            } else {
+                *(volatile UINT8*)(0xFF10 + op) = snd_buf[i++];
+            }
         }
-
-        switch (snd_cmd) {
-            /* write 16-bytes sample */
-            case 0xFE:
-                _AUD3WAVERAM[0]  = *snd_ptr++;
-                _AUD3WAVERAM[1]  = *snd_ptr++;
-                _AUD3WAVERAM[2]  = *snd_ptr++;
-                _AUD3WAVERAM[3]  = *snd_ptr++;
-                _AUD3WAVERAM[4]  = *snd_ptr++;
-                _AUD3WAVERAM[5]  = *snd_ptr++;
-                _AUD3WAVERAM[6]  = *snd_ptr++;
-                _AUD3WAVERAM[7]  = *snd_ptr++;
-                _AUD3WAVERAM[8]  = *snd_ptr++;
-                _AUD3WAVERAM[9]  = *snd_ptr++;
-                _AUD3WAVERAM[10] = *snd_ptr++;
-                _AUD3WAVERAM[11] = *snd_ptr++;
-                _AUD3WAVERAM[12] = *snd_ptr++;
-                _AUD3WAVERAM[13] = *snd_ptr++;
-                _AUD3WAVERAM[14] = *snd_ptr++;
-                _AUD3WAVERAM[15] = *snd_ptr++;
-                break;
-            /* move to next song */
-            case 0xFF:
-                //NR52_REG = 0x00;
-                snd_song++;
-                if (snd_song >= SND_SONG_COUNT)
-                    snd_song = 0;
-                snd_ptr = &SND_SONGS[snd_song][0];
-                return;
-            default:
-                snd_cmd &= 0x7F; /* reg offset */
-                *(volatile UINT8*)(0xFF10 + snd_cmd) = *snd_ptr++;
-                break;
-        }
+        snd_delay = snd_next_delay;
+        snd_buf_ready = 0; /* Clear flag to signal main loop */
     }
 }
 
