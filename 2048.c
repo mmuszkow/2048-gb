@@ -11,9 +11,6 @@
 # define false 0
 #endif
 
-/* global loop variables, [-128, 127] range */
-INT8 x, y;
-
 /* numbers are stored as binary shift */
 UINT8 game[4][4];
 
@@ -43,7 +40,8 @@ void memcpy(UINT8* dst, const UINT8* src, int size) {
 
 /* adds new tile to the map if possible */
 void add_new_tile(void) {
-    UINT8 r, rand_x, rand_y;
+    UINT8 x, y, r, rand_x, rand_y;
+
     for(y = 0; y < 4; y++)
         for(x = 0; x < 4; x++)
             /* there is space left for a new one */
@@ -61,6 +59,8 @@ void add_new_tile(void) {
 
 /* reinitialize the game */
 void new_game(void) {
+    UINT8 x, y;
+
     for(y=0; y<4; y++)
         for(x=0; x<4; x++)
             game[y][x] = 0;
@@ -69,10 +69,13 @@ void new_game(void) {
     score = 0;
 }
 
-bool apply_gravity(UINT8 jp) {    
+bool apply_gravity(UINT8 jp) {
+    UINT8 x, y;
     UINT8 gravity[4];
     INT8 grav_offset;
-    bool map_changed = false;
+    bool map_changed;
+
+    map_changed = false;
     if(jp & J_UP) {
         for(x = 0; x < 4; x++) {
             grav_offset = 0;
@@ -86,7 +89,7 @@ bool apply_gravity(UINT8 jp) {
                 game[y][x] = gravity[y];
             }
         }
-        
+
     } else if(jp & J_DOWN) {
         for(x = 0; x < 4; x++) {
             grav_offset = 3;
@@ -100,7 +103,7 @@ bool apply_gravity(UINT8 jp) {
                 game[y][x] = gravity[y];
             }
         }
-        
+
     } else if(jp & J_LEFT) {
         for(y = 0; y < 4; y++) {
             grav_offset = 0;
@@ -114,7 +117,7 @@ bool apply_gravity(UINT8 jp) {
                 game[y][x] = gravity[x];
             }
         }
-        
+
     } else if(jp & J_RIGHT) {
         for(y = 0; y < 4; y++) {
             grav_offset = 3;
@@ -129,13 +132,16 @@ bool apply_gravity(UINT8 jp) {
             }
         }
     }
-    
+
     return map_changed;
 }
 
 /* returns true if anything has changed */
 bool move(UINT8 jp) {
-    bool map_changed = false;
+    INT8 x, y;
+    bool map_changed;
+
+    map_changed = false;
     if(jp & J_UP) {
         /* merge tiles */
         map_changed = apply_gravity(jp);
@@ -149,7 +155,6 @@ bool move(UINT8 jp) {
                     break;
                 }
         return apply_gravity(jp) | map_changed;
-        
     } else if(jp & J_DOWN) {
         /* merge tiles */
         map_changed = apply_gravity(jp);
@@ -190,15 +195,15 @@ bool move(UINT8 jp) {
                 }
         return apply_gravity(jp) | map_changed;
     }
-    
+
     return false;
 }
 
 void fill_framebuffer(void) {
+    UINT8 x, y, digit_tile, border_tile;
     UINT8 *ptr;
-    UINT8 digit_tile, border_tile;
     UINT16 score2;
-    
+
     /* each map has 16 field
        each field has 4x4 tiles
        2x2 tiles in the middle is the digit
@@ -243,7 +248,7 @@ void fill_framebuffer(void) {
             *ptr++ = BORDER_SE + border_tile;
         }
     }
-        
+
     /* score, last row of framebuffer */
     score2 = score;
     *ptr++ = BORDER_N;
@@ -287,7 +292,7 @@ void fill_framebuffer(void) {
             }
         }
         /* default palette for score */
-        memset(ptr, 1, 16);    
+        memset(ptr, 1, 16);
     }
 }
 
@@ -312,7 +317,7 @@ void fill_message(const char* line1, const char* line2) {
     frame_buff[FB_POS(1,9)] = BORDER_SW;
     memset(&frame_buff[FB_POS(2,9)], BORDER_S, 12);
     frame_buff[FB_POS(14,9)] = BORDER_SE;
-    
+
     /* GBC only, set 2nd palette */
     if(_cpu == CGB_TYPE) {
         memset(&palette_buff[FB_POS(1,6)], 1, 14);
@@ -324,6 +329,7 @@ void fill_message(const char* line1, const char* line2) {
 
 /* returns true if 2048 is on the map */
 bool has_2048(void) {
+    UINT8 x, y;
     for(y=0; y<4; y++)
         for(x=0; x<4; x++)
             if(game[y][x] == 11)
@@ -333,6 +339,7 @@ bool has_2048(void) {
 
 /* returns true if no further moves are possible (we lost) */
 bool no_move_possible(void) {
+    UINT8 x, y;
     for(y=0; y<4; y++)
         for(x=0; x<4; x++) {
             /* there is still a free tile */
@@ -411,7 +418,7 @@ void draw_fixed_border(void) {
     memset(border, 0, 18);
     set_bkg_tiles(0, 0, 1, 18, border);
     set_bkg_tiles(19, 0, 1, 18, border);
-    
+
     if(_cpu == CGB_TYPE) { /* GBC only */
         memset(border, 1, 18);
         VBK_REG = 1; /* switch to VRAM bank 1 */
@@ -426,9 +433,8 @@ void draw_fixed_border(void) {
 }
 
 void init_sgb_frame(void) {
-    UINT8 i, x, y;
+    UINT8 x, y, i, tmp_lcdc;
     UINT8 map_buf[20];
-    UINT8 tmp_lcdc;
     volatile UINT8 ntiles;
     UINT8 *dout, *tiledata;
 
@@ -442,7 +448,7 @@ void init_sgb_frame(void) {
 
         /* freeze screen transfer */
         map_buf[0] = (SGB_MASK_EN << 3) | 1;
-        map_buf[1] = 1; 
+        map_buf[1] = 1;
         sgb_transfer(map_buf);
 
         BGP_REG = OBP0_REG = OBP1_REG = 0xE4;
@@ -469,19 +475,19 @@ void init_sgb_frame(void) {
         tiledata = (UINT8*) SGB_TILES;
         ntiles = (sizeof(SGB_TILES) > 256 * 32) ? 0 : sizeof(SGB_TILES) >> 5;
         if ((!ntiles) || (ntiles > 128)) { 
-            set_bkg_data(0, 0, tiledata); 
+            set_bkg_data(0, 0, tiledata);
             map_buf[0] = (SGB_CHR_TRN << 3) | 1;
             map_buf[1] = 0; // SGB_CHR_BLOCK0
             sgb_transfer(map_buf);
 
-            if (ntiles) ntiles -= 128; 
+            if (ntiles) ntiles -= 128;
             tiledata += (128 * 32);
-            set_bkg_data(0, ntiles << 1, tiledata); 
+            set_bkg_data(0, ntiles << 1, tiledata);
             map_buf[0] = (SGB_CHR_TRN << 3) | 1;
             map_buf[1] = 1; // SGB_CHR_BLOCK1
             sgb_transfer(map_buf);
         } else { 
-            set_bkg_data(0, ntiles << 1, tiledata); 
+            set_bkg_data(0, ntiles << 1, tiledata);
             map_buf[0] = (SGB_CHR_TRN << 3) | 1;
             map_buf[1] = 0; // SGB_CHR_BLOCK0
             sgb_transfer(map_buf);
@@ -498,10 +504,10 @@ void init_sgb_frame(void) {
 
         /* clear screen */
         fill_bkg_rect(0, 0, 20, 18, 0);
-        
+
         /* unfreeze screen to reveal border */
         map_buf[0] = (SGB_MASK_EN << 3) | 1;
-        map_buf[1] = 0; 
+        map_buf[1] = 0;
         sgb_transfer(map_buf);
     }
 }
@@ -524,7 +530,7 @@ void main(void) {
     enable_interrupts(); /* vblank irq is used by sys_time */
     waitpad(J_START|J_A);
     initrand(sys_time); /* init PRNG with time from start */
-    
+
     /* proceed to the game */
     disable_interrupts();
     draw_fixed_border();
@@ -534,7 +540,7 @@ void main(void) {
     snd_init(NO_SONG);
     add_VBL(vblank_irq);
     enable_interrupts();
-    
+
     key_down = 0;
     last_joy = 0;
 	while(1) {
