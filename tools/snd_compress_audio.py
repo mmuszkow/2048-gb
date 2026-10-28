@@ -204,6 +204,32 @@ def compress_song_data(commands, max_ngram_len = 32):
 
     return commands, nodes
 
+def calculate_max_stack_depth(main_commands, nodes):
+    """Calculates the exact max stack depth for this song tree."""
+    memo = {}
+
+    def get_node_depth(node_id):
+        if node_id in memo:
+            return memo[node_id]
+
+        max_child_depth = 0
+        for cmd in nodes[node_id]:
+            if cmd[0] == 'NODE_CALL':
+                child_id = cmd[1]
+                max_child_depth = max(max_child_depth, 1 + get_node_depth(child_id))
+
+        memo[node_id] = max_child_depth
+        return max_child_depth
+
+    max_stack = 0
+    for cmd in main_commands:
+        if cmd[0] == 'NODE_CALL':
+            child_id = cmd[1]
+            depth = 1 + get_node_depth(child_id)
+            max_stack = max(max_stack, depth)
+
+    return max(1, max_stack)
+
 def command_to_bytes(cmd_tuple):
     cmd_type = cmd_tuple[0]
 
@@ -289,6 +315,7 @@ if __name__ == '__main__':
 
     # Compress sequence tree
     main_cmp, nodes = compress_song_data(cmds)
+    max_stack_depth = calculate_max_stack_depth(main_cmp, nodes)
 
     c_output, blob_bytes, pointer_table_bytes = export_rom_data(main_cmp, nodes, song_id)
     total_compressed = blob_bytes + pointer_table_bytes
@@ -296,6 +323,7 @@ if __name__ == '__main__':
     print(f'\nData Blob size: {blob_bytes} bytes')
     print(f'Pointer Table size: {pointer_table_bytes} bytes')
     print(f'Total ROM size: {total_compressed} bytes')
+    print(f'Max stack depth: {max_stack_depth}')
     print(f'Compression ratio: {(total_compressed / raw_size) * 100:.2f}% of original')
 
     out_filename = f'song{song_id}_c.h'
