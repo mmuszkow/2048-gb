@@ -197,7 +197,7 @@ def export_rom_data(main_commands, nodes, song_id):
         all_bytes.append(0xFE)  # RET command
 
     prefix = f'SONG{song_id}'
-    c_code = [f'#ifndef __{prefix}_H__', f'#define __{prefix}_H__', "#include <gb/gb.h>\n"]
+    c_code = [f'#ifndef __SND_{prefix}_H__', f'#define __SND_{prefix}_H__\n', "#include <gb/gb.h>\n"]
 
     # ARRAY 1: Contiguous Binary Blob
     c_code.append("const UINT8 %s_DATA[%d] = {" % (prefix, len(all_bytes)))

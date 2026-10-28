@@ -43,7 +43,7 @@ for wave_idx in range(16):
 VALID_SOUND_REGS = set(SOUND_REG_NAMES.keys())
 
 
-def parse_and_comment_log(log_filepath, output_c_filepath, array_name="SND_SONG_0"):
+def parse_and_comment_log(log_filepath, output_c_filepath, array_name):
     c_lines = []
     last_frame = None
     total_bytes = 0
@@ -108,12 +108,14 @@ def parse_and_comment_log(log_filepath, output_c_filepath, array_name="SND_SONG_
 
     print(f"Converted '{log_filepath}' -> '{output_c_filepath}'. Stream size: {total_bytes} bytes.")
 
-
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python convert_log_fixed.py dump.txt song.c [ARRAY_NAME]")
+        print('Usage:', sys.argv[0], '<dump file>', '<song id>')
         sys.exit(1)
 
-    array_name = sys.argv[3] if len(sys.argv) > 3 else "SND_SONG_0"
-    parse_and_comment_log(sys.argv[1], sys.argv[2], array_name)
+    dump_file = sys.argv[1]
+    song_id = sys.argv[2]
+    out_file = f'song{song_id}.h'
+    array_name = f'SND_SONG{song_id}'
+    parse_and_comment_log(dump_file, out_file, array_name)
 

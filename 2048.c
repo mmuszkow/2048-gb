@@ -537,7 +537,7 @@ void main(void) {
     new_game();
     flags = FLAG_REDRAW;
     fill_framebuffer();
-    snd_set_song(NO_SONG);
+    snd_set_song(0);
     add_VBL(vblank_irq);
     enable_interrupts();
 

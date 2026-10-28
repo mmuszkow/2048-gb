@@ -24,13 +24,8 @@ static UINT8 snd_buf_len;
 static volatile UINT8 snd_buf_ready;
 
 void snd_set_song(INT8 song) {
-    if (song < 0) {
-        NR52_REG = 0x00; /* Power off APU */
-    } else {
-        NR52_REG = 0x80;
-        NR50_REG = 0x77;
-        NR51_REG = 0xFF;
-
+    NR52_REG = 0x00; /* turn off APU */
+    if (snd_song >= 0) {
         snd_ptr = SND_SONG_DATA[song];
         snd_stack_idx = 0;
         snd_delay = 0;
