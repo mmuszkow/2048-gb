@@ -8,6 +8,12 @@
 #define MAX_CALL_STACK 16
 #define MAX_FRAME_BUF  64
 
+#define SND_CMD_NODE16   0xFA
+#define SND_CMD_NODE8    0xFB
+#define SND_CMD_RET      0xFC
+#define SND_CMD_WAVE_RAM 0xFE
+#define SND_CMD_END      0xFF
+
 /* Engine State Variables */
 volatile INT8 snd_song;
 INT8 snd_delay;
@@ -61,8 +67,8 @@ void snd_decompress(void) {
         }
 
         switch (cmd) {
-            /* WAVE_RAM (0xFA): Queue opcode + 16 payload bytes */
-            case 0xFA:
+            /* WAVE_RAM: Queue opcode + 16 payload bytes */
+            case SND_CMD_WAVE_RAM:
                 if (snd_buf_len + 17 <= MAX_FRAME_BUF) {
                     snd_buf[snd_buf_len++] = 0xFA;
                     for (UINT8 i = 0; i < 16; i++) {
@@ -73,8 +79,8 @@ void snd_decompress(void) {
                 }
                 break;
 
-            /* NODE_CALL_16 (0xFC): 2-byte node index */
-            case 0xFC: {
+            /* NODE_CALL_16: 2-byte node index */
+            case SND_CMD_NODE16: {
                 UINT16 node_id = (UINT16)snd_ptr[0] | ((UINT16)snd_ptr[1] << 8);
                 snd_ptr += 2;
                 if (snd_stack_idx < MAX_CALL_STACK) {
@@ -84,8 +90,8 @@ void snd_decompress(void) {
                 break;
             }
 
-            /* NODE_CALL_8 (0xFD): 1-byte node index */
-            case 0xFD: {
+            /* NODE_CALL_8: 1-byte node index */
+            case SND_CMD_NODE8: {
                 UINT8 node_id = *snd_ptr++;
                 if (snd_stack_idx < MAX_CALL_STACK) {
                     snd_stack[snd_stack_idx++] = snd_ptr;
@@ -94,15 +100,15 @@ void snd_decompress(void) {
                 break;
             }
 
-            /* RET (0xFE): Return from node */
-            case 0xFE:
+            /* RET: Return from node */
+            case SND_CMD_RET:
                 if (snd_stack_idx > 0) {
                     snd_ptr = snd_stack[--snd_stack_idx];
                 }
                 break;
 
-            /* END (0xFF): Advance to next song */
-            case 0xFF:
+            /* END: Advance to next song */
+            case SND_CMD_END:
                 snd_song++;
                 if (snd_song >= SND_SONG_COUNT)
                     snd_song = 0;

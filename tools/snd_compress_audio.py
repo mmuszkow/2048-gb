@@ -4,19 +4,25 @@ import re
 import sys
 from collections import Counter
 
+CMD_NODE16    = 0xFA
+CMD_NODE8     = 0xFB
+CMD_RET       = 0xFC
+CMD_WAVE_RAM  = 0xFE
+CMD_END       = 0xFF
+
 def parse_c_array(file_path):
     with open(file_path, 'r') as f:
         c_code = f.read()
-        
+
     match = re.search(r'\{([^}]+)\}', c_code)
     if not match:
         return []
     array_content = match.group(1)
-    
+
     array_content = re.sub(r'//.*', '', array_content)
     array_content = re.sub(r'/\*.*?\*/', '', array_content, flags=re.DOTALL)
     raw_values = re.findall(r'(0x[0-9a-fA-F]+|\d+)', array_content)
-    
+
     return [int(val, 0) for val in raw_values]
 
 def is_valid_snd_reg_offset(offset):
@@ -27,7 +33,7 @@ def is_valid_snd_reg_offset(offset):
         0x10, 0x11, 0x12, 0x13,        # NR41-NR44 (Channel 4)
         0x14, 0x15, 0x16               # NR50-NR52 (Master control)
     }
-    valid_offsets.update(range(0x20, 0x30))  # Wave RAM
+    valid_offsets.update(range(0x20, 0x30))  # Wave RAM offsets (0x20-0x2F)
     return offset in valid_offsets
 
 def group_into_commands(byte_list):
@@ -38,11 +44,14 @@ def group_into_commands(byte_list):
         if cmd < 0x80:
             commands.append(('DELAY', cmd))
             i += 1
-        elif cmd == 0xFE:
+        elif cmd == CMD_WAVE_RAM:  # Handle pre-existing Wave RAM commands
             payload = byte_list[i+1 : i+17]
             commands.append(('WAVE_RAM', tuple(payload)))
             i += 17
-        elif cmd == 0xFF:
+        elif cmd == CMD_RET:  # RET (Return from node)
+            commands.append(('RET', ))
+            i += 1
+        elif cmd == CMD_END:
             commands.append(('END', ))
             break
         else:
@@ -53,6 +62,44 @@ def group_into_commands(byte_list):
             commands.append(('REG_WRITE', reg, val))
             i += 2
     return commands
+
+def optimize_wave_ram_commands(commands):
+    """
+    Scans for 16 consecutive REG_WRITE commands to offsets 0x20..0x2F 
+    and collapses them into a single WAVE_RAM command tuple.
+    """
+    optimized = []
+    i = 0
+    grouped_count = 0
+
+    while i < len(commands):
+        # Check if there are 16 consecutive REG_WRITE commands for offsets 0x20 through 0x2F
+        if i + 16 <= len(commands):
+            window = commands[i : i + 16]
+            is_full_wave = True
+            payload = []
+
+            for idx in range(16):
+                cmd = window[idx]
+                expected_reg = 0x20 + idx
+                if cmd[0] == 'REG_WRITE' and cmd[1] == expected_reg:
+                    payload.append(cmd[2])
+                else:
+                    is_full_wave = False
+                    break
+
+            if is_full_wave:
+                optimized.append(('WAVE_RAM', tuple(payload)))
+                i += 16
+                grouped_count += 1
+                continue
+
+        optimized.append(commands[i])
+        i += 1
+
+    if grouped_count > 0:
+        print(f"Optimized {grouped_count} Wave RAM blocks into CMD_WAVE_RAM commands.")
+    return optimized
 
 def get_all_ngrams(commands, min_len, max_len):
     ngrams = Counter()
@@ -94,36 +141,36 @@ def get_command_size(cmd_tuple):
     elif cmd_type == 'REG_WRITE':
         return 2
     elif cmd_type == 'WAVE_RAM':
-        return 17
+        return 17  # 1 byte opcode (CMD_WAVE_RAM) + 16 sample bytes
     elif cmd_type == 'NODE_CALL':
         node_id = cmd_tuple[1]
         if node_id < 256:
-            return 2      # NODE_CALL_8: 0xFD + 1 byte ID
+            return 2      # CMD_NODE8 + 1 byte ID
         elif node_id < 65536:
-            return 3      # NODE_CALL_16: 0xFC + 2 bytes ID
+            return 3      # CMD_NODE16 + 2 bytes ID
         else:
             raise ValueError(f"Node ID {node_id} exceeds 16-bit capacity limit.")
     return 1
 
-def compress_song_data(commands):
+def compress_song_data(commands, max_ngram_len = 32):
     nodes = []
-    
+
     while True:
-        candidates = get_all_ngrams(commands, min_len=2, max_len=15)
+        candidates = get_all_ngrams(commands, min_len=2, max_len=max_ngram_len)
         best_seq = None
         max_profit = 0
-        
+
         for seq in candidates:
             total_occurrences = count_non_overlapping(commands, seq)
             for node in nodes:
                 total_occurrences += count_non_overlapping(node, seq)
-                
+
             if total_occurrences < 2:
                 continue
-                
+
             seq_byte_size = sum(get_command_size(cmd) for cmd in seq)
             original_bytes = total_occurrences * seq_byte_size
-            
+
             node_id = len(nodes)
             if node_id < 256:
                 call_cost = 2
@@ -131,54 +178,54 @@ def compress_song_data(commands):
                 call_cost = 3
             else:
                 break
-                
+
             # Cost breakdown:
             # - Node sequence byte length
-            # - 1 byte for RET opcode (0xFE)
+            # - 1 byte for RET opcode
             # - 2 bytes for NodePointers[] lookup table entry in ROM
             # - (total_occurrences * call_cost) for call instructions
             compressed_bytes = seq_byte_size + 1 + 2 + (total_occurrences * call_cost)
             profit = original_bytes - compressed_bytes
-            
+
             if profit > max_profit:
                 max_profit = profit
                 best_seq = seq
-                
+
         if max_profit <= 0 or not best_seq:
             break
-            
+
         node_id = len(nodes)
         nodes.append(list(best_seq))
         commands = replace_sequence(commands, best_seq, node_id)
         for i in range(len(nodes) - 1):
             nodes[i] = replace_sequence(nodes[i], best_seq, node_id)
-            
+
         print(f"Extracted Node {node_id:04X} | Saved {max_profit:4} bytes | Seq: {best_seq}")
-        
+
     return commands, nodes
 
 def command_to_bytes(cmd_tuple):
     cmd_type = cmd_tuple[0]
-    
+
     if cmd_type == 'DELAY':
         return [cmd_tuple[1]]
     elif cmd_type == 'END':
-        return [0xFF]
+        return [CMD_END]
     elif cmd_type == 'RET':
-        return [0xFE]
+        return [CMD_RET]
     elif cmd_type == 'REG_WRITE':
         return [cmd_tuple[1] | 0x80, cmd_tuple[2]]
     elif cmd_type == 'WAVE_RAM':
-        return [0xFA] + list(cmd_tuple[1])
+        return [CMD_WAVE_RAM] + list(cmd_tuple[1])
     elif cmd_type == 'NODE_CALL':
         node_id = cmd_tuple[1]
         if node_id < 256:
-            return [0xFD, node_id]
+            return [CMD_NODE8, node_id]
         elif node_id < 65536:
-            return [0xFC, node_id & 0xFF, (node_id >> 8) & 0xFF]
+            return [CMD_NODE16, node_id & 0xFF, (node_id >> 8) & 0xFF]
         else:
             raise ValueError(f"Node ID {node_id} exceeds 16-bit capacity.")
-            
+
     raise ValueError(f"Unknown command tuple: {cmd_tuple}")
 
 def export_rom_data(main_commands, nodes, song_id):
@@ -194,7 +241,7 @@ def export_rom_data(main_commands, nodes, song_id):
         node_offsets.append(len(all_bytes))
         for cmd in node:
             all_bytes.extend(command_to_bytes(cmd))
-        all_bytes.append(0xFE)  # RET command
+        all_bytes.append(CMD_RET)
 
     prefix = f'SONG{song_id}'
     c_code = [f'#ifndef __SND_{prefix}_H__', f'#define __SND_{prefix}_H__\n', "#include <gb/gb.h>\n"]
@@ -206,16 +253,17 @@ def export_rom_data(main_commands, nodes, song_id):
         hex_chunk = ", ".join(f"0x{b:02X}" for b in chunk)
         c_code.append(f"    {hex_chunk},")
     c_code.append("};\n")
-    
+
     # ARRAY 2: Pointer Lookup Table
-    c_code.append("const UINT8* const %s_NODES[%d] = {" % (prefix, len(node_offsets)))
+    node_count = len(node_offsets) if len(node_offsets) > 0 else 1
+    c_code.append("const UINT8* const %s_NODES[%d] = {" % (prefix, node_count))
     if node_offsets:
         for i, offset in enumerate(node_offsets):
             c_code.append(f"    &{prefix}_DATA[{offset}],")
     else:
         c_code.append("    (const UINT8*)0")
     c_code.append("};\n")
-    
+
     blob_bytes = len(all_bytes)
     pointer_table_bytes = len(node_offsets) * 2
 
@@ -232,8 +280,14 @@ if __name__ == '__main__':
     arr = parse_c_array(c_filename)
     raw_size = len(arr)
     print(f'Raw length: {raw_size} bytes')
-    
+
+    # Parse into tuple stream
     cmds = group_into_commands(arr)
+
+    # Optimize unrolled Wave RAM writes into 0xFA commands before tree extraction
+    cmds = optimize_wave_ram_commands(cmds)
+
+    # Compress sequence tree
     main_cmp, nodes = compress_song_data(cmds)
 
     c_output, blob_bytes, pointer_table_bytes = export_rom_data(main_cmp, nodes, song_id)
@@ -247,7 +301,7 @@ if __name__ == '__main__':
     out_filename = f'song{song_id}_c.h'
     with open(out_filename, 'w') as f:
         f.write(c_output)
-        
+
     print(f'Saved output to {out_filename}')
     sys.exit(0)
 
