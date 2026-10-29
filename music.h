@@ -1,9 +1,9 @@
 #ifndef __2048_MUSIC_H__
 #define __2048_MUSIC_H__
 
-#include "song0_c.h"
-#include "song1_c.h"
-#include "song2_c.h"
+#include "song0_cmp.h"
+#include "song1_cmp.h"
+#include "song2_cmp.h"
 
 #define SND_SONG_COUNT 3
 

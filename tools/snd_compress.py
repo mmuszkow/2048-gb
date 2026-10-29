@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import re
 import sys
 from collections import Counter
@@ -152,7 +153,7 @@ def get_command_size(cmd_tuple):
             raise ValueError(f"Node ID {node_id} exceeds 16-bit capacity limit.")
     return 1
 
-def compress_song_data(commands, max_ngram_len = 32):
+def compress_song_data(commands, max_ngram_len = 17):
     nodes = []
 
     while True:
@@ -200,7 +201,7 @@ def compress_song_data(commands, max_ngram_len = 32):
         for i in range(len(nodes) - 1):
             nodes[i] = replace_sequence(nodes[i], best_seq, node_id)
 
-        print(f"Extracted Node {node_id:04X} | Saved {max_profit:4} bytes | Seq: {best_seq}")
+        print(f"Extracted Node {node_id:04X} | Saved {max_profit:4} bytes | Seq (length {len(best_seq):4}): {best_seq}")
 
     return commands, nodes
 
@@ -254,7 +255,7 @@ def command_to_bytes(cmd_tuple):
 
     raise ValueError(f"Unknown command tuple: {cmd_tuple}")
 
-def export_rom_data(main_commands, nodes, song_id):
+def export_rom_data(c_filename, raw_size, main_commands, nodes, song_id):
     all_bytes = []
 
     # 1. Main Track starts at offset 0
@@ -269,8 +270,26 @@ def export_rom_data(main_commands, nodes, song_id):
             all_bytes.extend(command_to_bytes(cmd))
         all_bytes.append(CMD_RET)
 
+    blob_bytes = len(all_bytes)
+    pointer_table_bytes = len(node_offsets) * 2
+    total_compressed = blob_bytes + pointer_table_bytes
+    compression_ratio = (total_compressed / raw_size) * 100
+    info = [
+        f'/* compressed from: {c_filename} */',
+        f'/* uncompressed size: {raw_size} bytes */',
+        f'/* compressed size: {total_compressed} bytes */',
+        f'/* max stack depth: {max_stack_depth} */',
+        f'/* compression ratio: {compression_ratio:.2f}% of original */\n'
+    ]
+    print('\n'.join(info))
+
     prefix = f'SONG{song_id}'
-    c_code = [f'#ifndef __SND_{prefix}_H__', f'#define __SND_{prefix}_H__\n', "#include <gb/gb.h>\n"]
+    c_code = [
+        f'#ifndef __SND_{prefix}_H__',
+        f'#define __SND_{prefix}_H__\n',
+        '#include <gb/gb.h>\n'
+    ]
+    c_code.extend(info)
 
     # ARRAY 1: Contiguous Binary Blob
     c_code.append("const UINT8 %s_DATA[%d] = {" % (prefix, len(all_bytes)))
@@ -290,19 +309,22 @@ def export_rom_data(main_commands, nodes, song_id):
         c_code.append("    (const UINT8*)0")
     c_code.append("};\n")
 
-    blob_bytes = len(all_bytes)
-    pointer_table_bytes = len(node_offsets) * 2
-
     c_code.append('#endif\n') 
-    return "\n".join(c_code), blob_bytes, pointer_table_bytes
+    return "\n".join(c_code)
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        print('Usage:', sys.argv[0], '<.h file>', '<song ID>')
+    if len(sys.argv) < 3:
+        print('Usage:', sys.argv[0], '<.h file>', '<song ID>', '[max_ngram]')
         sys.exit(1)
 
     c_filename = sys.argv[1]
     song_id = int(sys.argv[2])
+    max_ngram = 17
+    if len(sys.argv) > 3:
+        max_ngram = int(sys.argv[3])
+    filename = os.path.splitext(c_filename)[0]
+    out_filename = f'{filename}_cmp.h'
+
     arr = parse_c_array(c_filename)
     raw_size = len(arr)
     print(f'Raw length: {raw_size} bytes')
@@ -314,22 +336,14 @@ if __name__ == '__main__':
     cmds = optimize_wave_ram_commands(cmds)
 
     # Compress sequence tree
-    main_cmp, nodes = compress_song_data(cmds)
+    main_cmp, nodes = compress_song_data(cmds, max_ngram)
     max_stack_depth = calculate_max_stack_depth(main_cmp, nodes)
 
-    c_output, blob_bytes, pointer_table_bytes = export_rom_data(main_cmp, nodes, song_id)
-    total_compressed = blob_bytes + pointer_table_bytes
-
-    print(f'\nData Blob size: {blob_bytes} bytes')
-    print(f'Pointer Table size: {pointer_table_bytes} bytes')
-    print(f'Total ROM size: {total_compressed} bytes')
-    print(f'Max stack depth: {max_stack_depth}')
-    print(f'Compression ratio: {(total_compressed / raw_size) * 100:.2f}% of original')
-
-    out_filename = f'song{song_id}_c.h'
+    c_output = export_rom_data(c_filename, raw_size, main_cmp, nodes, song_id)
+    
     with open(out_filename, 'w') as f:
         f.write(c_output)
-
     print(f'Saved output to {out_filename}')
+    
     sys.exit(0)
 
