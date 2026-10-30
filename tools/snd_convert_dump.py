@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+from pathlib import Path
 import sys
 
 # Game Boy CPU clock frequency: 4,194,304 Hz
@@ -44,9 +45,13 @@ VALID_SOUND_REGS = set(SOUND_REG_NAMES.keys())
 
 
 def parse_and_comment_log(log_filepath, output_c_filepath, array_name):
-    c_lines = []
+    # these are set by initial boot seq
+    c_lines = [
+        '    0x95, 0xF3,        /* NR51 (Sound Output Terminal) = 0xF3 */',
+        '    0x94, 0x77,        /* NR50 (Master Volume/Pan) = 0x77 */'
+    ]
     last_frame = None
-    total_bytes = 0
+    total_bytes = 4
 
     with open(log_filepath, "r") as f:
         for line in f:
@@ -62,10 +67,16 @@ def parse_and_comment_log(log_filepath, output_c_filepath, array_name):
                 reg = int(reg_str, 16)
                 val = int(val_str, 16)
             except ValueError:
+                print('Value error:', line)
                 continue
 
             # Validate against explicit allowed Game Boy sound registers / Wave RAM
             if reg not in VALID_SOUND_REGS:
+                print('Invalid reg: ', line)
+                continue
+
+            # this is the approx end of the boot jingle
+            if cycles <= 5500000:
                 continue
 
             # Compute relative offset from 0xFF10 (e.g. 0x11 -> 0x01, 0x30 -> 0x20)
@@ -96,13 +107,17 @@ def parse_and_comment_log(log_filepath, output_c_filepath, array_name):
             )
             total_bytes += 2
 
+    if len(c_lines) == 2:
+        print('No data in', log_filepath)
+        return
+
     # Append EOF marker
     c_lines.append("    0xFF                 /* End of Song */")
     total_bytes += 1
 
     # Write formatted C code
     with open(output_c_filepath, "w") as out:
-        out.write(f"const UINT8 {array_name}[] = {{\n")
+        out.write(f"const UINT8 {array_name}[{total_bytes}] = {{\n")
         out.write("\n".join(c_lines))
         out.write("\n};\n")
 
@@ -115,7 +130,7 @@ if __name__ == "__main__":
 
     dump_file = sys.argv[1]
     song_id = sys.argv[2]
-    out_file = f'song{song_id}.h'
+    out_file = './uncompressed/' + Path(dump_file).stem + '.h'
     array_name = f'SND_SONG{song_id}'
     parse_and_comment_log(dump_file, out_file, array_name)
 
